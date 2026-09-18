@@ -164,8 +164,35 @@ function buildPrintout() {
   const headers = values.shift();
   const idx = Object.fromEntries(headers.map((h,i)=>[h,i]));
 
-  function isCash(r){ return String(r[idx['IRS Donation Type Classification']] || '').toLowerCase().includes('cash'); }
-  function isNonCash(r){ return String(r[idx['IRS Donation Type Classification']] || '').toLowerCase().includes('non'); }
+  // Charity -> address lookup (Donations_Log doesn't store the address itself)
+  const addrByCharity = {};
+  const charSheet = ss.getSheetByName(SHEET_CHAR);
+  if (charSheet) {
+    const clr = charSheet.getLastRow();
+    if (clr >= 2) {
+      charSheet.getRange(2,1, clr-1, 2).getValues().forEach(([name, addr]) => {
+        if (name) addrByCharity[normalize_(name)] = addr || '';
+      });
+    }
+  }
+
+  // "Donation Type" is "Money" for cash gifts; item donations carry the item name there instead.
+  function isCash(r){ return String(r[idx['Donation Type']] || '').trim() === 'Money'; }
+  function isNonCash(r){ return !isCash(r); }
+
+  function describe(r){
+    if (isCash(r)) {
+      const method = r[idx['IRS Donation Type Classification']] || '';
+      const note = r[idx['Note']] || '';
+      return [method, note].filter(Boolean).join(' — ');
+    }
+    const item = r[idx['Donation Type']] || '';
+    const condition = r[idx['IRS Donation Type Classification']] || '';
+    const qty = r[idx['Quantity']] || '';
+    const note = r[idx['Note']] || '';
+    const main = `${item}${condition ? ' (' + condition + ')' : ''}${qty ? ' x' + qty : ''}`;
+    return [main, note].filter(Boolean).join(' — ');
+  }
 
   function fmtDateForReport(d){
     if (!(d instanceof Date)) return d;
@@ -193,9 +220,9 @@ function buildPrintout() {
 
     rows.forEach(r=>{
       const charity = r[idx['Charity']] || '';
-      const addr = r[idx['Charity Address']] || '';
+      const addr = addrByCharity[normalize_(charity)] || '';
       const date = fmtDateForReport(r[idx['Date']]);
-      const desc = r[idx['Description']] || '';
+      const desc = describe(r);
       const amt = Number(r[idx['Donation Value in $']] || 0);
 
       rpt.getRange(row,1).setValue(`${charity}\n${date}`).setWrap(true);
